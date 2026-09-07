@@ -1,8 +1,8 @@
 pub mod accelerator;
 pub mod assembler;
+pub mod clock;
 pub mod cpu;
 pub mod debug;
-
 pub mod isa;
 pub mod issuer;
 pub mod mac;

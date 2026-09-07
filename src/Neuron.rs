@@ -120,6 +120,7 @@ fn run() -> Result<(), String> {
     println!("OUT: {}", stats.out);
     println!("RELU: {}", stats.relu);
     println!("HALT: {}", stats.halt);
-
+    println!("Total clock ticks: {}", cpu.total_ticks());
+    cpu.reset();
     Ok(())
 }

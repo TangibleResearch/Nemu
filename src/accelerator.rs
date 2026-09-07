@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use crate::clock::Clock;
+
 pub const DEFAULT_GRID_SIZE: usize = 3;
 pub const DEFAULT_OUTPUT_BUS_SIZE: usize = 8;
 
@@ -158,6 +160,14 @@ impl AiAccelerator {
         }
     }
 
+    /// Processes one queued instruction and advances the CPU clock only when
+    /// the accelerator completes the work successfully.
+    pub fn process_instruction_clocked(&mut self, clock: &mut Clock) -> Result<f32, String> {
+        let result = self.process_instruction()?;
+        clock.tick();
+        Ok(result)
+    }
+
     /// Execute one complete accelerator instruction.
     ///
     /// This does NOT modify the instruction queue.
@@ -227,6 +237,18 @@ impl AiAccelerator {
 
         self.completed_instruction_count = self.completed_instruction_count.wrapping_add(1);
 
+        Ok(result)
+    }
+
+    /// Executes immediate accelerator work and advances the supplied clock
+    /// after successful completion.
+    pub fn execute_instruction_clocked(
+        &mut self,
+        instruction: AcceleratorInstruction,
+        clock: &mut Clock,
+    ) -> Result<f32, String> {
+        let result = self.execute_instruction(instruction)?;
+        clock.tick();
         Ok(result)
     }
 
@@ -440,5 +462,32 @@ mod tests {
 
         assert_eq!(positive, 8.0);
         assert_eq!(negative, 0.0);
+    }
+
+    #[test]
+    fn clocked_execution_ticks_only_after_success() {
+        let mut accelerator = AiAccelerator::default();
+        let mut clock = Clock::new();
+
+        accelerator
+            .execute_instruction_clocked(
+                AcceleratorInstruction::VectorAdd {
+                    a: 1.0,
+                    b: 2.0,
+                    output_slot: 0,
+                },
+                &mut clock,
+            )
+            .unwrap();
+        let failed = accelerator.execute_instruction_clocked(
+            AcceleratorInstruction::ReLU {
+                input: 1.0,
+                output_slot: DEFAULT_OUTPUT_BUS_SIZE,
+            },
+            &mut clock,
+        );
+
+        assert!(failed.is_err());
+        assert_eq!(clock.get_tick(), 1);
     }
 }

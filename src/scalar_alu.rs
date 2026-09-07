@@ -11,6 +11,10 @@ pub struct AluResult {
 pub struct ScalarAlu;
 
 impl ScalarAlu {
+    pub const fn new() -> Self {
+        Self
+    }
+
     pub fn add(&self, a: u32, b: u32) -> AluResult {
         let (value, carry) = a.overflowing_add(b);
 

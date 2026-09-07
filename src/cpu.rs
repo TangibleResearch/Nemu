@@ -1,23 +1,21 @@
 use crate::accelerator::{AcceleratorInstruction, AiAccelerator};
+use crate::clock::Clock;
 use crate::debug::trace::TraceEvent;
 use crate::isa::*;
-use crate::issuer::IssueResult;
-use crate::issuer::Issuer;
-use crate::matrix::{MATRIX_SIZE, Matrix};
+use crate::issuer::{IssueResult, Issuer};
+use crate::matrix::{MATRIX_SIZE, Matrix, MatrixEngine};
 
 pub const FLAG_ZERO: u32 = 1 << 0;
 pub const FLAG_NEGATIVE: u32 = 1 << 1;
 pub const FLAG_CARRY: u32 = 1 << 2;
 pub const FLAG_OVERFLOW: u32 = 1 << 3;
 
-#[derive(Default)]
 pub struct NeuronCpu {
     issuer: Issuer,
-
-    // =========================
-    // AI Accelerator
-    // =========================
-    accelerator: AiAccelerator,
+    clock: Clock,
+    pub accelerator: AiAccelerator,
+    pub matrix_engine: MatrixEngine,
+    memory_size: u32,
 
     // =========================
     // Scalar General Registers
@@ -88,19 +86,69 @@ pub struct NeuronCpu {
 }
 impl NeuronCpu {
     pub fn new(memory_size: u32) -> Self {
-        Self {
-            sp: memory_size,
-            ..Default::default()
-        }
+        Self::with_accelerator(memory_size, AiAccelerator::default())
     }
 
     /// Creates a CPU with a caller-provided accelerator configuration.
     pub fn with_accelerator(memory_size: u32, accelerator: AiAccelerator) -> Self {
         Self {
-            sp: memory_size,
+            issuer: Issuer::new(),
+            clock: Clock::new(),
             accelerator,
-            ..Default::default()
+            matrix_engine: MatrixEngine::new(),
+            memory_size,
+            r0: 0,
+            r1: 0,
+            r2: 0,
+            r3: 0,
+            r4: 0,
+            r5: 0,
+            r6: 0,
+            r7: 0,
+            r8: 0,
+            r9: 0,
+            r10: 0,
+            r11: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+            v0: [0; 8],
+            v1: [0; 8],
+            v2: [0; 8],
+            v3: [0; 8],
+            v4: [0; 8],
+            v5: [0; 8],
+            v6: [0; 8],
+            v7: [0; 8],
+            m0: [[0; MATRIX_SIZE]; MATRIX_SIZE],
+            m1: [[0; MATRIX_SIZE]; MATRIX_SIZE],
+            m2: [[0; MATRIX_SIZE]; MATRIX_SIZE],
+            m3: [[0; MATRIX_SIZE]; MATRIX_SIZE],
+            p0: 0,
+            p1: 0,
+            p2: 0,
+            p3: 0,
+            pc: 0,
+            sp: memory_size,
+            fp: 0,
+            status: 0,
+            ai_mode: 0,
+            quant_ctrl: 0,
+            sparse_ctrl: 0,
+            tensor_ctrl: 0,
+            tensor_status: 0,
+            halted: false,
         }
+    }
+
+    /// Restores the processor to the same fresh state as [`Self::new`].
+    ///
+    /// Program and system RAM are owned by the caller and are intentionally
+    /// unaffected by a CPU reset.
+    pub fn reset(&mut self) {
+        println!("NC Alert: Neuron System Reset");
+        *self = Self::new(self.memory_size);
     }
 
     /// Returns the AI accelerator integrated into this CPU.
@@ -120,12 +168,14 @@ impl NeuronCpu {
 
     /// Executes the next queued instruction on the CPU's AI accelerator.
     pub fn process_accelerator_instruction(&mut self) -> Result<(), String> {
-        self.accelerator.process_instruction().map(|_| ())
+        self.accelerator
+            .process_instruction_clocked(&mut self.clock)
+            .map(|_| ())
     }
 
     fn execute_accelerator_instruction(&mut self, instruction: AcceleratorInstruction) -> f32 {
         self.accelerator
-            .execute_instruction(instruction)
+            .execute_instruction_clocked(instruction, &mut self.clock)
             .unwrap_or_else(|error| panic!("Neuron AI accelerator execution failed: {error}"))
     }
 
@@ -333,7 +383,8 @@ impl NeuronCpu {
     // ============================================================
 
     fn issue(&mut self, operation: u8, arguments: &[u32]) -> IssueResult {
-        self.issuer.issue(operation, arguments, self.status)
+        self.issuer
+            .issue_clocked(operation, arguments, self.status, &mut self.clock)
     }
 
     pub fn step(&mut self, memory: &mut [u8]) -> Option<TraceEvent> {
@@ -381,6 +432,7 @@ impl NeuronCpu {
 
                 self.write_scalar(destination, value);
             }
+            // 0xA0
             OP_OUT => {
                 let source = self.fetch_u8(memory);
                 let value = self.read_scalar(source);
@@ -828,6 +880,7 @@ impl NeuronCpu {
                 let mut matrix = self.read_matrix(register);
                 matrix[row][column] = i32::from(value);
                 self.write_matrix(register, matrix);
+                self.clock.tick();
             }
 
             // ====================================================
@@ -985,6 +1038,10 @@ impl NeuronCpu {
         self.status
     }
 
+    pub const fn total_ticks(&self) -> u64 {
+        self.clock.get_tick()
+    }
+
     pub const fn mac_accumulator(&self) -> i32 {
         self.issuer.mac_accumulator()
     }
@@ -1023,5 +1080,11 @@ impl NeuronCpu {
 
     pub const fn tensor_status(&self) -> u32 {
         self.tensor_status
+    }
+}
+
+impl Default for NeuronCpu {
+    fn default() -> Self {
+        Self::new(0)
     }
 }

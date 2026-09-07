@@ -1,3 +1,4 @@
+use crate::clock::Clock;
 use crate::cpu::FLAG_ZERO;
 use crate::isa::*;
 use crate::mac::Mac;
@@ -7,7 +8,6 @@ use crate::scalar_alu::{AluResult, ScalarAlu};
 ///
 /// AI/DNN instructions such as MMUL and RELU are handled directly
 /// by the CPU's AI accelerator path and must not execute here.
-#[derive(Default)]
 pub struct Issuer {
     scalar_alu: ScalarAlu,
     mac: Mac,
@@ -67,6 +67,31 @@ impl IssueResult {
 }
 
 impl Issuer {
+    pub const fn new() -> Self {
+        Self {
+            scalar_alu: ScalarAlu::new(),
+            mac: Mac::new(),
+        }
+    }
+
+    /// Issues one instruction and advances the supplied architectural clock
+    /// after successful non-output compute or state work.
+    pub fn issue_clocked(
+        &mut self,
+        operation: u8,
+        arguments: &[u32],
+        flags: u32,
+        clock: &mut Clock,
+    ) -> IssueResult {
+        let result = self.issue(operation, arguments, flags);
+
+        if !matches!(operation, OP_OUT | OP_HALT) {
+            clock.tick();
+        }
+
+        result
+    }
+
     /// Issues one decoded non-AI instruction.
     ///
     /// `arguments` contains values already resolved by the CPU.
@@ -276,6 +301,12 @@ impl Issuer {
     }
 }
 
+impl Default for Issuer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,5 +404,17 @@ mod tests {
         let mut issuer = Issuer::default();
 
         issuer.issue(OP_ADD, &[5], 0);
+    }
+
+    #[test]
+    fn clocked_issue_counts_compute_but_not_output_or_halt() {
+        let mut issuer = Issuer::default();
+        let mut clock = Clock::new();
+
+        issuer.issue_clocked(OP_ADD, &[2, 3], 0, &mut clock);
+        issuer.issue_clocked(OP_OUT, &['A' as u32], 0, &mut clock);
+        issuer.issue_clocked(OP_HALT, &[], 0, &mut clock);
+
+        assert_eq!(clock.get_tick(), 1);
     }
 }

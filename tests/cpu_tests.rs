@@ -73,6 +73,7 @@ fn executes_mac_and_matrix_instructions_through_the_cpu() {
     assert_eq!(cpu.mac_accumulator(), 20);
     assert_eq!(cpu.read_matrix(2), input);
     assert_eq!(cpu.accelerator().completed_instruction_count(), 64);
+    assert_eq!(cpu.total_ticks(), 70);
 }
 
 #[test]
@@ -117,6 +118,7 @@ fn assembly_initializes_matrices_before_mmul() {
 
     assert_eq!(cpu.read_matrix(0), expected);
     assert_eq!(cpu.read_matrix(2), expected);
+    assert_eq!(cpu.total_ticks(), 84);
 }
 
 #[test]
@@ -127,6 +129,7 @@ fn mset_preserves_signed_int8_values() {
 
     assert_eq!(cpu.read_matrix(3)[0][0], -128);
     assert_eq!(cpu.read_matrix(3)[3][3], 127);
+    assert_eq!(cpu.total_ticks(), 2);
 }
 
 #[test]
@@ -147,6 +150,7 @@ fn cpu_dispatches_relu_to_the_ai_accelerator() {
     assert_eq!(cpu.read_scalar(1), 0);
     assert_eq!(cpu.read_scalar(2), 2_147_483_647);
     assert_eq!(cpu.accelerator().completed_instruction_count(), 2);
+    assert_eq!(cpu.total_ticks(), 4);
 }
 
 #[test]
@@ -223,6 +227,7 @@ fn cpu_owns_and_executes_ai_accelerator_work() {
     cpu.process_accelerator_instruction().unwrap();
 
     assert_eq!(cpu.accelerator().output_bus[0], Some(0.0));
+    assert_eq!(cpu.total_ticks(), 1);
 }
 
 #[test]
@@ -233,4 +238,103 @@ fn cpu_accepts_a_custom_ai_accelerator() {
     assert_eq!(cpu.stack_pointer(), 1024);
     assert_eq!(cpu.accelerator().processing_grid.len(), 6);
     assert_eq!(cpu.accelerator().output_bus.len(), 16);
+}
+
+#[test]
+fn reset_restores_fresh_cpu_state_without_modifying_memory() {
+    let program = assemble(
+        r#"
+        MOVI R1, 42
+        MOVI R2, 512
+        STORE R2, R1
+        MOVI R3, 0
+        MAC R1, R1
+        PUSH R1
+        HALT
+        "#,
+    )
+    .unwrap();
+    let mut memory = vec![0; 1024];
+    memory[..program.len()].copy_from_slice(&program);
+    let mut cpu = NeuronCpu::new(memory.len() as u32);
+
+    for register in 0..16 {
+        cpu.write_scalar(register, u32::from(register) + 1);
+    }
+    for register in 0..8 {
+        cpu.write_vector(register, [u32::from(register) + 1; 8]);
+    }
+    for register in 0..4 {
+        cpu.write_matrix(register, [[i32::from(register) + 1; 4]; 4]);
+        cpu.write_predicate(register, register + 1);
+    }
+    cpu.set_frame_pointer(123);
+    cpu.set_ai_mode(1);
+    cpu.set_quantization_control(2);
+    cpu.set_sparsity_control(3);
+    cpu.set_tensor_control(4);
+
+    cpu.queue_accelerator_instruction(AcceleratorInstruction::ReLU {
+        input: -1.0,
+        output_slot: 0,
+    });
+    cpu.process_accelerator_instruction().unwrap();
+    cpu.queue_accelerator_instruction(AcceleratorInstruction::VectorAdd {
+        a: 1.0,
+        b: 2.0,
+        output_slot: 1,
+    });
+
+    let identity = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
+    cpu.matrix_engine.load_tiles(identity, identity);
+    cpu.matrix_engine.start();
+    cpu.matrix_engine.step_cycle();
+
+    while !cpu.is_halted() {
+        cpu.step(&mut memory);
+    }
+
+    assert_ne!(cpu.program_counter(), 0);
+    assert_ne!(cpu.stack_pointer(), memory.len() as u32);
+    assert_ne!(cpu.status(), 0);
+    assert_ne!(cpu.mac_accumulator(), 0);
+    assert_ne!(cpu.total_ticks(), 0);
+    assert_ne!(cpu.accelerator().completed_instruction_count(), 0);
+    assert!(cpu.matrix_engine.is_busy());
+
+    let memory_before_reset = memory.clone();
+    cpu.reset();
+
+    assert_eq!(memory, memory_before_reset);
+    assert!(!cpu.is_halted());
+    assert_eq!(cpu.program_counter(), 0);
+    assert_eq!(cpu.stack_pointer(), memory.len() as u32);
+    assert_eq!(cpu.frame_pointer(), 0);
+    assert_eq!(cpu.status(), 0);
+    assert_eq!(cpu.total_ticks(), 0);
+    assert_eq!(cpu.mac_accumulator(), 0);
+    assert_eq!(cpu.ai_mode(), 0);
+    assert_eq!(cpu.quantization_control(), 0);
+    assert_eq!(cpu.sparsity_control(), 0);
+    assert_eq!(cpu.tensor_control(), 0);
+    assert_eq!(cpu.tensor_status(), 0);
+
+    for register in 0..16 {
+        assert_eq!(cpu.read_scalar(register), 0);
+    }
+    for register in 0..8 {
+        assert_eq!(cpu.read_vector(register), [0; 8]);
+    }
+    for register in 0..4 {
+        assert_eq!(cpu.read_matrix(register), [[0; 4]; 4]);
+        assert_eq!(cpu.read_predicate(register), 0);
+    }
+
+    assert!(cpu.accelerator().queue_empty());
+    assert_eq!(cpu.accelerator().completed_instruction_count(), 0);
+    assert!(cpu.accelerator().output_bus.iter().all(Option::is_none));
+    assert!(!cpu.matrix_engine.is_busy());
+    assert!(!cpu.matrix_engine.is_done());
+    assert_eq!(cpu.matrix_engine.read_output(), None);
+    assert_eq!(cpu.matrix_engine.clock_ticks(), 0);
 }

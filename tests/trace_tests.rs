@@ -49,6 +49,7 @@ fn cpu_emits_one_post_execution_event_per_instruction() {
     assert_eq!(halt.status, cpu.status());
     assert!(cpu.is_halted());
     assert_eq!(cpu.step(&mut memory), None);
+    assert_eq!(cpu.total_ticks(), 4);
 }
 
 #[test]
@@ -129,4 +130,5 @@ fn cpu_executes_without_an_etb() {
 
     assert_eq!(cpu.read_scalar(1), 42);
     assert_eq!(opcode_name(0x10), "MOVI");
+    assert_eq!(cpu.total_ticks(), 1);
 }

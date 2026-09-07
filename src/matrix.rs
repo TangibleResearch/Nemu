@@ -1,3 +1,4 @@
+use crate::clock::Clock;
 use crate::mac::Mac;
 
 pub const MATRIX_SIZE: usize = 4;
@@ -13,6 +14,7 @@ pub struct MatrixEngine {
     k: usize,
     busy: bool,
     done: bool,
+    clock: Clock,
 }
 
 impl MatrixEngine {
@@ -25,6 +27,7 @@ impl MatrixEngine {
             k: 0,
             busy: false,
             done: false,
+            clock: Clock::new(),
         }
     }
 
@@ -58,6 +61,8 @@ impl MatrixEngine {
         if !self.busy || self.done {
             return;
         }
+
+        self.clock.tick();
 
         for row in 0..MATRIX_SIZE {
             for column in 0..MATRIX_SIZE {
@@ -93,6 +98,10 @@ impl MatrixEngine {
     pub const fn read_output(&self) -> Option<Matrix> {
         if self.done { Some(self.output) } else { None }
     }
+
+    pub const fn clock_ticks(&self) -> u64 {
+        self.clock.get_tick()
+    }
 }
 
 impl Default for MatrixEngine {
@@ -124,5 +133,6 @@ mod tests {
 
         assert!(engine.is_done());
         assert_eq!(engine.read_output(), Some(input));
+        assert_eq!(engine.clock_ticks(), MATRIX_SIZE as u64);
     }
 }
