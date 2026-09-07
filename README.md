@@ -1,10 +1,12 @@
-# Tangible Neuron
+# Tangible Nemu
 
 [![CI/CD](https://github.com/TangibleResearch/Neuron/actions/workflows/ci.yml/badge.svg)](https://github.com/TangibleResearch/Neuron/actions/workflows/ci.yml)
 
 **Tangible Neuron** is an experimental AI-first processor architecture developed as a research project by Tangible Research.
 
 Neuron explores how a processor can be designed around modern artificial intelligence workloads rather than treating AI acceleration as an afterthought. The project currently focuses on processor architecture, instruction-set design, vector and matrix execution, dataflow acceleration, compiler optimization, and hardware/software co-design.
+
+Tangible Nemu is the Emulator project for Neuron to test how Neuron would possibly handle instructions.
 
 ## Current Direction
 
